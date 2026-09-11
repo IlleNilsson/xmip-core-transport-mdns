@@ -25,6 +25,7 @@
 //! used under test; a test binds `127.0.0.1:0` and answers from a second
 //! socket.
 
+pub mod loopback;
 pub mod message;
 pub mod service;
 
@@ -42,6 +43,7 @@ pub const GROUP: &str = "224.0.0.251:5353";
 /// How long an announced record lives, RFC 6762 section 10.
 pub const TTL: u32 = 120;
 
+#[derive(Clone)]
 pub struct MdnsTransport {
     bind: String,
     group: String,
@@ -244,9 +246,55 @@ impl Transport for MdnsTransport {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use transport::loopback::Loopback;
 
     fn node() -> MdnsTransport {
         MdnsTransport::new("127.0.0.1:0").timing_out_after(Duration::from_secs(2))
+    }
+
+    #[test]
+    fn a_stream_rounds_as_a_query_per_chunk() {
+        let loopback = MdnsTransport::loopback();
+        let opaque: &[u8] = b"\x00line\r\nbreak \xff";
+        let arrived = loopback.round(opaque).expect("opaque");
+        assert_eq!(arrived.bytes, opaque);
+        assert!(
+            arrived.origin_uri.starts_with("mdns://127.0.0.1:"),
+            "{}",
+            arrived.origin_uri
+        );
+        assert!(
+            arrived
+                .origin_uri
+                .ends_with("/stream._xmip._udp.local?port=1&host=xmip.local."),
+            "{}",
+            arrived.origin_uri
+        );
+        let long = vec![0x2a; 5000];
+        assert_eq!(loopback.round(&long).expect("long").bytes, long);
+        assert!(loopback.round(b"").expect("empty").bytes.is_empty());
+        assert!(loopback.ceiling().is_none());
+        assert!(loopback.refuses(opaque).is_none());
+    }
+
+    #[test]
+    fn the_loopback_returns_the_edges_whole() {
+        let loopback = MdnsTransport::loopback();
+        let edges: [(&str, Vec<u8>); 6] = [
+            ("empty", Vec::new()),
+            ("one byte", vec![0x2a]),
+            ("every byte", (0..=255).collect()),
+            ("nul run", vec![0; 512]),
+            ("high bytes", vec![0xff; 512]),
+            ("crlf storm", b"\r\n".repeat(400)),
+        ];
+        for (name, payload) in edges {
+            assert_eq!(
+                loopback.round(&payload).expect(name).bytes,
+                payload,
+                "{name}"
+            );
+        }
     }
 
     #[test]
