@@ -10,11 +10,11 @@
 //! loopback (2026-09-09), because nobody acknowledges an announcement and
 //! the socket buffer was the only flow control there was.
 
-use std::fmt::Write;
 use std::net::UdpSocket;
 
 use transport::Arrived;
 use transport::error::{Result, classify, protocol_error};
+use transport::hex::{hex, unhex};
 use transport::loopback::{FarEnd, LOOPBACK_TIMEOUT, Loopback};
 use transport::socket;
 
@@ -162,44 +162,12 @@ fn chunk_asked(name: &str) -> Result<usize> {
         .ok_or_else(|| protocol_error(format!("a query for something else: {name:?}")))
 }
 
-/// `bytes` as lower-case hex pairs, the form a TXT string takes.
-fn hex(bytes: &[u8]) -> String {
-    let mut out = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        let _ = write!(out, "{byte:02x}");
-    }
-    out
-}
-
-/// The bytes `digits` spell, refused where they do not.
-fn unhex(digits: &str) -> Result<Vec<u8>> {
-    if !digits.len().is_multiple_of(2) {
-        return Err(protocol_error(format!(
-            "an odd number of hex digits: {digits:?}"
-        )));
-    }
-    (0..digits.len())
-        .step_by(2)
-        .map(|at| {
-            digits
-                .get(at..at + 2)
-                .and_then(|pair| u8::from_str_radix(pair, 16).ok())
-                .ok_or_else(|| protocol_error(format!("not hex: {digits:?}")))
-        })
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn hex_reads_back_and_a_query_names_its_chunk() {
-        assert_eq!(hex(&[0, 0x7f, 0xff]), "007fff");
-        assert_eq!(unhex("007fff").expect("hex"), [0, 0x7f, 0xff]);
-        assert!(unhex("").expect("nothing").is_empty());
-        assert!(unhex("abc").is_err(), "odd");
-        assert!(unhex("zz").is_err(), "not hex");
+    fn a_query_names_its_chunk_and_an_origin_its_peer() {
         assert_eq!(
             chunk_asked("chunk-12._xmip._udp.local.").expect("asked"),
             12
