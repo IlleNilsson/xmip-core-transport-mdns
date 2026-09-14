@@ -16,9 +16,15 @@ path = "src/lib.rs"
 [dependencies]
 # A Technology depends on its parent Capability, never the reverse
 # (repository-model.md). Standard library otherwise: mDNS is a DNS message with
-# two bits repurposed, and its own compact codec keeps it independent of the dns
-# technology.
+# two bits repurposed. The label-and-pointer form of a name is the capability's
+# (ADR-0044), shared with the dns technology; the compact record codec is this
+# crate's own.
 transport = { package = "xmip-core-transport", git = "https://github.com/IlleNilsson/xmip-core-transport", branch = "main" }
+
+[dev-dependencies]
+# The loopback payloads the tests drive, from the capability's test
+# support and never a production build (ADR-0044).
+transport = { package = "xmip-core-transport", git = "https://github.com/IlleNilsson/xmip-core-transport", branch = "main", features = ["test-support"] }
 
 [lints.rust]
 unsafe_code = "forbid"
