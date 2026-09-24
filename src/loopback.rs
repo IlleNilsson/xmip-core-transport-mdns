@@ -12,9 +12,9 @@
 
 use std::net::UdpSocket;
 
+use codec::hex;
 use transport::Arrived;
 use transport::error::{Result, classify, protocol_error};
-use transport::hex::{hex, unhex};
 use transport::loopback::{FarEnd, LOOPBACK_TIMEOUT, Loopback};
 use transport::socket;
 
@@ -90,7 +90,7 @@ impl FarEnd for Browser {
                 let text = std::str::from_utf8(&arrived.bytes)
                     .map_err(|_| protocol_error("TXT strings that are not text"))?;
                 for line in text.lines() {
-                    bytes.extend(unhex(line)?);
+                    bytes.extend(hex::decode(line)?);
                 }
             }
         }
@@ -128,7 +128,7 @@ impl Loopback for MdnsTransport {
             let txt = payload
                 .chunks(CHUNK)
                 .nth(n)
-                .map(|chunk| chunk.chunks(STRING).map(hex).collect())
+                .map(|chunk| chunk.chunks(STRING).map(hex::encode).collect())
                 .unwrap_or_default();
             let records = self.service(&format!("chunk-{n}"), txt).records(TTL);
             let response = Message::response(query.id, records);
