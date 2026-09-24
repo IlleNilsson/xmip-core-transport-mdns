@@ -5,7 +5,7 @@
 
 use std::net::IpAddr;
 
-use crate::message::{
+use dns::record::{
     BIT_UNICAST, CLASS_IN, Record, RecordData, TYPE_A, TYPE_AAAA, TYPE_PTR, TYPE_SRV, TYPE_TXT,
 };
 
@@ -75,7 +75,7 @@ impl Service {
                     target: self.host.clone(),
                 },
             ),
-            record(&full, TYPE_TXT, RecordData::Txt(self.txt.clone())),
+            record(&full, TYPE_TXT, RecordData::Txt(self.txt_strings())),
         ];
         for address in &self.addresses {
             records.push(match address {
@@ -102,10 +102,13 @@ impl Service {
             let txt = all
                 .clone()
                 .filter(|r| r.kind == TYPE_TXT && r.name.eq_ignore_ascii_case(&record.name))
-                .flat_map(|r| match &r.data {
-                    RecordData::Txt(strings) => strings.clone(),
-                    _ => Vec::new(),
+                .filter_map(|r| match &r.data {
+                    RecordData::Txt(strings) => Some(strings),
+                    _ => None,
                 })
+                .flatten()
+                .filter(|string| !string.is_empty())
+                .map(|string| String::from_utf8_lossy(string).into_owned())
                 .collect();
             let addresses = all
                 .clone()
@@ -126,6 +129,18 @@ impl Service {
             });
         }
         services
+    }
+
+    /// The TXT record's character strings: one empty string where there
+    /// are none, the empty TXT record RFC 6763 section 6.1 asks for.
+    fn txt_strings(&self) -> Vec<Vec<u8>> {
+        if self.txt.is_empty() {
+            return vec![Vec::new()];
+        }
+        self.txt
+            .iter()
+            .map(|string| string.as_bytes().to_vec())
+            .collect()
     }
 
     /// The TXT strings as the Stream: one `key=value` line each.
@@ -192,5 +207,16 @@ mod tests {
         assert!(Service::split_name("printer.local.").is_none(), "a host");
         assert!(Service::split_name("Printer._ipp._tcp.example.").is_none());
         assert!(Service::split_name("._ipp._tcp.local.").is_none());
+        let silent = Service {
+            txt: Vec::new(),
+            ..printer()
+        };
+        let records = silent.records(120);
+        assert_eq!(
+            records[2].data,
+            RecordData::Txt(vec![Vec::new()]),
+            "RFC 6763 6.1"
+        );
+        assert_eq!(Service::from_records(records.iter()), vec![silent]);
     }
 }

@@ -14,12 +14,15 @@ use std::net::UdpSocket;
 
 use codec::hex;
 use transport::Arrived;
+use transport::arrived::next_arrival;
+use transport::bound::{Bound, Reading};
 use transport::error::{Result, classify, protocol_error};
 use transport::loopback::{FarEnd, LOOPBACK_TIMEOUT, Loopback};
 use transport::socket;
 
-use crate::message::{self, MAX_MESSAGE, Message};
+use crate::message::{self, MAX_MESSAGE};
 use crate::{MdnsTransport, Service, TTL};
+use dns::message::Message;
 
 /// What one TXT string carries: twice this in hex fits the 255 bytes a
 /// string holds.
@@ -54,36 +57,25 @@ impl MdnsTransport {
     }
 }
 
-/// A bound browser waiting for a responder to announce itself.
-struct Browser {
-    transport: MdnsTransport,
-    socket: UdpSocket,
-    address: String,
-}
-
-impl FarEnd for Browser {
-    fn address(&self) -> &str {
-        &self.address
-    }
-
+impl Reading for MdnsTransport {
+    /// A bound browser waiting for a responder to announce itself.
+    ///
     /// Take the announcement, then query the responder that made it for
     /// the Stream, a chunk per query.
-    fn take_one(self: Box<Self>) -> Result<Arrived> {
-        let announced = self
-            .transport
-            .receive_datagram(&self.socket)?
-            .into_iter()
-            .next()
-            .ok_or_else(|| protocol_error("an announcement naming no service"))?;
+    fn take_one(self, socket: &UdpSocket) -> Result<Arrived> {
+        let announced = next_arrival(
+            self.receive_datagram(socket)?,
+            "an announcement naming no service",
+        )?;
         let responder = peer_of(&announced.origin_uri)?;
         let mut bytes = Vec::new();
         for n in 0..usize::MAX {
             let name = format!("chunk-{n}.{KIND}.local.");
-            let query = Message::query(&name, message::TYPE_ANY);
-            self.socket
+            let query = Message::query(&name, dns::record::TYPE_ANY);
+            socket
                 .send_to(&message::encode(&query)?, &responder)
                 .map_err(|e| classify("querying", &e))?;
-            for arrived in self.transport.receive_datagram(&self.socket)? {
+            for arrived in self.receive_datagram(socket)? {
                 if arrived.bytes.is_empty() {
                     return Ok(Arrived::new(announced.origin_uri, bytes));
                 }
@@ -100,12 +92,7 @@ impl FarEnd for Browser {
 
 impl Loopback for MdnsTransport {
     fn far_end(&self) -> Result<Box<dyn FarEnd>> {
-        let (socket, address) = self.bind_udp()?;
-        Ok(Box::new(Browser {
-            transport: self.clone(),
-            socket,
-            address,
-        }))
+        Ok(Box::new(Bound::new(self.clone(), self.bind_udp()?)))
     }
 
     /// A responder announces a service to the browser at `address`, then
@@ -114,7 +101,10 @@ impl Loopback for MdnsTransport {
         let (responder, _) = socket::bind_udp("127.0.0.1:0", self.timeout)?;
         let records = self.service(INSTANCE, Vec::new()).records(TTL);
         responder
-            .send_to(&message::encode(&Message::response(0, records))?, address)
+            .send_to(
+                &message::encode(&Message::authoritative(0, records))?,
+                address,
+            )
             .map_err(|e| classify("announcing", &e))?;
         let chunks = payload.chunks(CHUNK).count();
         let mut buffer = vec![0u8; MAX_MESSAGE];
@@ -122,7 +112,7 @@ impl Loopback for MdnsTransport {
             let (read, peer) = responder
                 .recv_from(&mut buffer)
                 .map_err(|e| classify("awaiting a query", &e))?;
-            let query = message::decode(&buffer[..read])?;
+            let query = dns::message::decode(&buffer[..read])?;
             let asked = query.questions.first().map_or("", |q| q.name.as_str());
             let n = chunk_asked(asked)?;
             let txt = payload
@@ -131,7 +121,7 @@ impl Loopback for MdnsTransport {
                 .map(|chunk| chunk.chunks(STRING).map(hex::encode).collect())
                 .unwrap_or_default();
             let records = self.service(&format!("chunk-{n}"), txt).records(TTL);
-            let response = Message::response(query.id, records);
+            let response = Message::authoritative(query.id, records);
             responder
                 .send_to(&message::encode(&response)?, peer)
                 .map_err(|e| classify("answering a query", &e))?;
