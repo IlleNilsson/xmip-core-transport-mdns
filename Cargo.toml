@@ -20,6 +20,8 @@ path = "src/lib.rs"
 # (ADR-0044), shared with the dns technology; the compact record codec is this
 # crate's own.
 transport = { package = "xmip-core-transport", git = "https://github.com/IlleNilsson/xmip-core-transport", branch = "main" }
+# The estate's encoding primitives: a TXT string's bytes spelled in hex.
+codec = { package = "xmip-core-library-codec", git = "https://github.com/IlleNilsson/xmip-core-library-codec", branch = "main" }
 
 [dev-dependencies]
 # The loopback payloads the tests drive, from the capability's test
