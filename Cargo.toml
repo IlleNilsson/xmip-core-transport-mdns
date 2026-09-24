@@ -15,11 +15,12 @@ path = "src/lib.rs"
 
 [dependencies]
 # A Technology depends on its parent Capability, never the reverse
-# (repository-model.md). Standard library otherwise: mDNS is a DNS message with
-# two bits repurposed. The label-and-pointer form of a name is the capability's
-# (ADR-0044), shared with the dns technology; the compact record codec is this
-# crate's own.
+# (repository-model.md).
 transport = { package = "xmip-core-transport", git = "https://github.com/IlleNilsson/xmip-core-transport", branch = "main" }
+# mDNS is a DNS message with two bits repurposed (RFC 6762 section 18): the
+# message codec is the dns technology's, and only the size mDNS sends is
+# this crate's.
+dns = { package = "xmip-core-transport-dns", git = "https://github.com/IlleNilsson/xmip-core-transport-dns", branch = "main" }
 # The estate's encoding primitives: a TXT string's bytes spelled in hex.
 codec = { package = "xmip-core-library-codec", git = "https://github.com/IlleNilsson/xmip-core-library-codec", branch = "main" }
 

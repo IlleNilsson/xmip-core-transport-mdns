@@ -1,6 +1,6 @@
 # xmip-core-transport-mdns
 
-mDNS transport: multicast DNS with DNS-SD over UDP — service announcements and query answers arrive as Streams of their TXT records, a Send Location announces a service. A technology of [xmip-core-transport](https://github.com/IlleNilsson/xmip-core-transport).
+mDNS transport: multicast DNS with DNS-SD over UDP — service announcements and query answers arrive as Streams of their TXT records, a Send Location announces a service. The DNS message codec is the dns technology's; mDNS adds only the size it sends. A technology of [xmip-core-transport](https://github.com/IlleNilsson/xmip-core-transport).
 
 ## Toolchain
 

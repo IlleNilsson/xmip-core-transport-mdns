@@ -32,7 +32,8 @@ pub mod service;
 use std::net::{IpAddr, SocketAddr, UdpSocket};
 use std::time::Duration;
 
-pub use message::{MAX_MESSAGE, Message, Record, RecordData};
+use dns::message::Message;
+pub use message::MAX_MESSAGE;
 pub use service::Service;
 use transport::error::{Result, classify, protocol_error};
 use transport::socket;
@@ -121,7 +122,10 @@ impl MdnsTransport {
         let Some(kind) = &self.browsing else {
             return Ok(());
         };
-        let query = Message::query(&format!("{kind}.{}", service::DOMAIN), message::TYPE_PTR);
+        let query = Message::query(
+            &format!("{kind}.{}", service::DOMAIN),
+            dns::record::TYPE_PTR,
+        );
         socket
             .send_to(&message::encode(&query)?, &self.group)
             .map_err(|e| classify("sending the query", &e))?;
@@ -139,7 +143,7 @@ impl MdnsTransport {
             let (read, peer) = socket
                 .recv_from(&mut buffer)
                 .map_err(|e| classify("receiving a datagram", &e))?;
-            let message = message::decode(&buffer[..read])?;
+            let message = dns::message::decode(&buffer[..read])?;
             if !message.is_response() {
                 continue;
             }
@@ -215,7 +219,7 @@ impl Transport for MdnsTransport {
     fn send(&self, target: &str, bytes: &[u8]) -> Result<()> {
         let (address, mut service) = self.service_at(target)?;
         service.txt = Service::parse_txt(bytes);
-        let announcement = Message::response(0, service.records(TTL));
+        let announcement = Message::authoritative(0, service.records(TTL));
         let sender =
             UdpSocket::bind("0.0.0.0:0").map_err(|e| classify("binding the sending socket", &e))?;
         sender
@@ -310,10 +314,10 @@ mod tests {
         let answering = std::thread::spawn(move || {
             let mut buffer = [0u8; MAX_MESSAGE];
             let (read, peer) = responder.recv_from(&mut buffer).expect("the query");
-            let query = message::decode(&buffer[..read]).expect("decode");
+            let query = dns::message::decode(&buffer[..read]).expect("decode");
             assert!(!query.is_response());
             assert_eq!(query.questions[0].name, "_ipp._tcp.local.");
-            assert_eq!(query.questions[0].kind, message::TYPE_PTR);
+            assert_eq!(query.questions[0].kind, dns::record::TYPE_PTR);
             let mut records = Vec::new();
             for (instance, port) in [("Printer", 631), ("Copier", 632)] {
                 let service = Service {
@@ -326,7 +330,7 @@ mod tests {
                 };
                 records.extend(service.records(TTL));
             }
-            let response = message::encode(&Message::response(0, records)).expect("encode");
+            let response = message::encode(&Message::authoritative(0, records)).expect("encode");
             responder.send_to(&response, peer).expect("answering");
         });
         far_end.query(&socket).expect("asking");
@@ -358,7 +362,7 @@ mod tests {
                 .expect_err("junk")
                 .retryable
         );
-        let query = message::encode(&Message::query("_ipp._tcp.local.", message::TYPE_PTR));
+        let query = message::encode(&Message::query("_ipp._tcp.local.", dns::record::TYPE_PTR));
         other
             .send_to(&query.expect("encode"), &address)
             .expect("query");
