@@ -130,10 +130,6 @@ impl Loopback for MdnsTransport {
             }
         }
     }
-
-    fn unblock(&self, _address: &str) {
-        // The receive has its own timeout; there is no listener to poke.
-    }
 }
 
 /// The peer an origin `mdns://peer/…` names.
