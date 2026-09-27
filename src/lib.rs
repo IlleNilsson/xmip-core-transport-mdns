@@ -35,9 +35,11 @@ use std::time::Duration;
 use dns::message::Message;
 pub use message::MAX_MESSAGE;
 pub use service::Service;
+use transport::Configured;
 use transport::error::{Result, classify, protocol_error};
 use transport::socket;
 use transport::{Arrived, Directions, Transport};
+use xcore::settings::{Applies, Kind, Presence, Read, Setting, Settings};
 
 /// The multicast group and port mDNS lives on.
 pub const GROUP: &str = "224.0.0.251:5353";
@@ -189,6 +191,69 @@ impl MdnsTransport {
     }
 }
 
+impl Configured for MdnsTransport {
+    /// The address is where a Receive Location listens: the group,
+    /// `224.0.0.251:5353`, for what the link announces, or a unicast address
+    /// for answers to its own query. A Send Location announces to its target.
+    const SETTINGS: &'static Settings = &Settings {
+        technology: env!("CARGO_PKG_NAME"),
+        settings: &[
+            Setting {
+                name: "browsing",
+                kind: Kind::Text,
+                presence: Presence::Optional,
+                meaning: "The service kind, `_ipp._tcp`, asked for before taking answers.",
+                applies: Applies::Receive,
+            },
+            Setting {
+                name: "host",
+                kind: Kind::Text,
+                presence: Presence::Optional,
+                meaning: "The host an announced service runs on, placed in `local.`.",
+                applies: Applies::Send,
+            },
+            Setting {
+                name: "host_address",
+                kind: Kind::Address,
+                presence: Presence::Optional,
+                meaning: "The IP address announced for the host.",
+                applies: Applies::Send,
+            },
+            Setting {
+                name: "timeout",
+                kind: Kind::Duration,
+                presence: Presence::Optional,
+                meaning: "How long a message is waited for; unbounded when left out.",
+                applies: Applies::Receive,
+            },
+        ],
+    };
+
+    fn configured(address: &str, settings: &Read) -> Result<Self> {
+        let mut transport = Self::new(address);
+        if let Some(kind) = settings.optional_text("browsing") {
+            transport = transport.browsing(kind);
+        }
+        let addresses =
+            match settings.optional_text("host_address") {
+                Some(ip) => vec![ip.parse::<IpAddr>().map_err(|_| {
+                    protocol_error(format!("{ip:?} is not an IP address to announce"))
+                })?],
+                None => Vec::new(),
+            };
+        if let Some(host) = settings.optional_text("host") {
+            transport = transport.as_host(host, &addresses);
+        } else if !addresses.is_empty() {
+            let host = transport.host.clone();
+            transport = transport.as_host(&host, &addresses);
+        }
+        Ok(match settings.optional_duration("timeout") {
+            Some(timeout) => transport.timing_out_after(timeout),
+            None => transport,
+        })
+    }
+}
+
 fn arrived(peer: SocketAddr, service: &Service) -> Arrived {
     Arrived::new(
         format!(
@@ -238,6 +303,30 @@ mod tests {
 
     fn node() -> MdnsTransport {
         MdnsTransport::new("127.0.0.1:0").timing_out_after(Duration::from_secs(2))
+    }
+
+    #[test]
+    fn mdns_declares_its_settings_and_reads_through_them() {
+        use xcore::settings::Given;
+        assert!(MdnsTransport::SETTINGS.problems().is_empty());
+        let given = [
+            ("host".to_string(), Given::Text("gateway".to_string())),
+            (
+                "host_address".to_string(),
+                Given::Text("192.168.1.9".to_string()),
+            ),
+        ];
+        let built = MdnsTransport::open(GROUP, Applies::Send, &given).expect("built");
+        assert_eq!(built.host, "gateway.local.");
+        assert_eq!(built.addresses, [IpAddr::from([192, 168, 1, 9])]);
+        let browsing = [("browsing".to_string(), Given::Text("_ipp._tcp".to_string()))];
+        let receiver = MdnsTransport::open(GROUP, Applies::Receive, &browsing).expect("built");
+        assert_eq!(receiver.bind, GROUP);
+        assert_eq!(receiver.browsing.as_deref(), Some("_ipp._tcp"));
+        let Err(refused) = MdnsTransport::open(GROUP, Applies::Receive, &given) else {
+            panic!("a Receive Location announces no host");
+        };
+        assert!(refused.message.contains("\"host\""), "{refused}");
     }
 
     #[test]
