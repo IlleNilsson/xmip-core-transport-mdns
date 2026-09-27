@@ -37,6 +37,7 @@ pub use message::MAX_MESSAGE;
 pub use service::Service;
 use transport::Configured;
 use transport::error::{Result, classify, protocol_error};
+use transport::sender::Sender;
 use transport::socket;
 use transport::{Arrived, Directions, Transport};
 use xcore::settings::{Applies, Kind, Presence, Read, Setting, Settings};
@@ -54,6 +55,8 @@ pub struct MdnsTransport {
     host: String,
     addresses: Vec<IpAddr>,
     timeout: Option<Duration>,
+    /// The socket every send leaves from, bound once.
+    sender: Sender,
 }
 
 impl MdnsTransport {
@@ -68,6 +71,7 @@ impl MdnsTransport {
             host: "xmip.local.".to_string(),
             addresses: Vec::new(),
             timeout: None,
+            sender: Sender::new(),
         }
     }
 
@@ -285,12 +289,8 @@ impl Transport for MdnsTransport {
         let (address, mut service) = self.service_at(target)?;
         service.txt = Service::parse_txt(bytes);
         let announcement = Message::authoritative(0, service.records(TTL));
-        let sender =
-            UdpSocket::bind("0.0.0.0:0").map_err(|e| classify("binding the sending socket", &e))?;
-        sender
-            .send_to(&message::encode(&announcement)?, address)
-            .map_err(|e| classify("sending the announcement", &e))?;
-        Ok(())
+        self.sender
+            .send_to(&message::encode(&announcement)?, &address)
     }
 }
 
