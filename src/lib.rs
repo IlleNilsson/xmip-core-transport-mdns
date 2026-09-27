@@ -37,6 +37,7 @@ pub use message::MAX_MESSAGE;
 pub use service::Service;
 use transport::Configured;
 use transport::error::{Result, classify, protocol_error};
+use transport::kept::Kept;
 use transport::sender::Sender;
 use transport::socket;
 use transport::{Arrived, Directions, Transport};
@@ -57,6 +58,9 @@ pub struct MdnsTransport {
     timeout: Option<Duration>,
     /// The socket every send leaves from, bound once.
     sender: Sender,
+    /// The socket the first receive binds and joins the group on, and every
+    /// receive reads.
+    receiving: Kept<UdpSocket>,
 }
 
 impl MdnsTransport {
@@ -72,6 +76,7 @@ impl MdnsTransport {
             addresses: Vec::new(),
             timeout: None,
             sender: Sender::new(),
+            receiving: Kept::new(),
         }
     }
 
@@ -279,10 +284,13 @@ impl Transport for MdnsTransport {
         Directions::BOTH
     }
 
+    /// The services one response names, from the socket the first receive
+    /// bound and kept: an announcement made between two receives waits in
+    /// its buffer.
     fn receive(&self) -> Result<Vec<Arrived>> {
-        let (socket, _) = self.bind_udp()?;
-        self.query(&socket)?;
-        self.receive_datagram(&socket)
+        let socket = self.receiving.bound(|| self.bind_udp())?;
+        self.query(socket)?;
+        self.receive_datagram(socket)
     }
 
     fn send(&self, target: &str, bytes: &[u8]) -> Result<()> {
@@ -364,6 +372,28 @@ mod tests {
                 payload,
                 "{name}"
             );
+        }
+    }
+
+    #[test]
+    fn every_receive_reads_the_socket_the_first_bound() {
+        // Every announcement lands before any receive: in the kept socket's
+        // buffer, taken in order by receives that bind nothing.
+        let far_end = node();
+        far_end
+            .receiving
+            .bound(|| far_end.bind_udp())
+            .expect("bound");
+        let address = far_end.receiving.address().expect("address");
+        let announcer = node();
+        for round in 0..5 {
+            let target = format!("mdns://{address}/Node{round}._xmip._tcp.local?port=80");
+            let txt = format!("round={round}\n");
+            announcer.send(&target, txt.as_bytes()).expect("announced");
+        }
+        for round in 0..5 {
+            let arrived = far_end.receive().expect("received");
+            assert_eq!(arrived[0].bytes, format!("round={round}\n").as_bytes());
         }
     }
 
