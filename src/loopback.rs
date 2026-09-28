@@ -13,6 +13,7 @@
 use std::net::UdpSocket;
 
 use codec::hex;
+use net::Target;
 use transport::Arrived;
 use transport::arrived::next_arrival;
 use transport::bound::{Bound, Reading};
@@ -134,8 +135,8 @@ impl Loopback for MdnsTransport {
 
 /// The peer an origin `mdns://peer/…` names.
 fn peer_of(origin: &str) -> Result<String> {
-    socket::target("mdns", origin)
-        .map(|(authority, _)| authority)
+    Target::under(&["mdns"], origin)
+        .map(|named| named.authority())
         .filter(|peer| !peer.is_empty())
         .map(str::to_string)
         .ok_or_else(|| protocol_error(format!("an origin naming no peer: {origin}")))

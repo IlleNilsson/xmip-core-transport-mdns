@@ -34,6 +34,7 @@ use std::time::Duration;
 
 use dns::message::Message;
 pub use message::MAX_MESSAGE;
+use net::Target;
 pub use service::Service;
 use transport::Configured;
 use transport::error::{Result, classify, protocol_error};
@@ -82,7 +83,7 @@ impl MdnsTransport {
 
     /// Ask for `kind` — `_ipp._tcp` — before taking answers.
     #[must_use]
-    pub fn browsing(mut self, kind: &str) -> Self {
+    fn browsing(mut self, kind: &str) -> Self {
         self.browsing = Some(kind.trim_end_matches('.').to_string());
         self
     }
@@ -172,22 +173,21 @@ impl MdnsTransport {
     ///
     /// # Errors
     /// A target without `/<instance>.<kind>.local`, or without a port.
-    pub fn service_at(&self, target: &str) -> Result<(String, Service)> {
-        let Some((address, path)) = socket::target("mdns", target) else {
+    fn service_at(&self, target: &str) -> Result<(String, Service)> {
+        let Some(named) = Target::under(&["mdns"], target) else {
             return Err(protocol_error(format!(
                 "an mdns target names the service: mdns://host:port/<instance>.<kind>.local?port=…, got {target}"
             )));
         };
-        let (name, query) = path.split_once('?').unwrap_or((path, ""));
-        let name = format!("{}.", name.trim_end_matches('.'));
+        let name = format!("{}.", named.path().trim_end_matches('.'));
         let (instance, kind) = Service::split_name(&name)
             .ok_or_else(|| protocol_error(format!("not <instance>.<kind>.local: {name}")))?;
-        let port = query
-            .split('&')
-            .find_map(|pair| pair.strip_prefix("port=")?.parse().ok())
+        let port = named
+            .query_value("port")
+            .and_then(|port| port.parse().ok())
             .ok_or_else(|| protocol_error(format!("a service without ?port=: {target}")))?;
         Ok((
-            address.to_string(),
+            named.authority().to_string(),
             Service {
                 instance,
                 kind,

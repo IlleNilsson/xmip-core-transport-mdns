@@ -33,7 +33,7 @@ impl Service {
 
     /// `<kind>.local.`.
     #[must_use]
-    pub fn kind_name(&self) -> String {
+    fn kind_name(&self) -> String {
         format!("{}.{DOMAIN}", self.kind.trim_end_matches('.'))
     }
 
