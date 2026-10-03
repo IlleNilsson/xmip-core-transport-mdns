@@ -8,6 +8,16 @@ A Receive Location keeps its socket, bound on the first receive (`transport::kep
 
 A send target is read by `net::Target` in [xmip-core-library-net](https://github.com/IlleNilsson/xmip-core-library-net), the one reading of a URI every technology calls, and its query is decoded there. Until 2026-09-28 this technology split the query off itself, without percent-decoding it.
 
+## Acknowledgement
+
+An announcement is multicast to the link and answered by nobody, so acceptance
+is at-most-once there: its responder is never told how the receive cycle ended,
+and a crash before the Stream is durable loses it. A Location built browsing a
+kind asks before every receive, and taking an answer consumes nothing at the
+responder (the next receive asks again and is answered again), so its
+acknowledgement waits for the verdict with nothing to do on either. Each
+service arrives whole.
+
 ## Toolchain
 
 `rust-toolchain.toml` pins the toolchain for the whole estate. Do not change it

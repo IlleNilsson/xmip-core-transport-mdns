@@ -20,6 +20,13 @@
 //! strings, one per line. A bare `host:port` has no service in it and is
 //! refused.
 //!
+//! **How a receive acknowledges.** An announcement is multicast and
+//! answered by nobody: acceptance is at-most-once there ([`AT_MOST_ONCE`]).
+//! A Location built `browsing(kind)` asks before every receive, and taking
+//! an answer consumes nothing at the responder — the next receive asks
+//! again — so its acknowledgement waits for the verdict with nothing to do
+//! on either. Each service arrives whole.
+//!
 //! Multicast is joined when the bind address is in 224/4 — the socket
 //! binds the port on every interface and joins the group — and is never
 //! used under test; a test binds `127.0.0.1:0` and answers from a second
@@ -41,8 +48,14 @@ use transport::error::{Result, classify, protocol_error};
 use transport::kept::Kept;
 use transport::sender::Sender;
 use transport::socket;
-use transport::{Arrived, Directions, Transport};
+use transport::{Acknowledgement, Arrived, Directions, Transport};
 use xcore::settings::{Applies, Kind, Presence, Read, Setting, Settings};
+
+/// Why an announced service cannot be acknowledged after the receive
+/// cycle.
+pub const AT_MOST_ONCE: &str = "an mDNS announcement is multicast to the link and answered by \
+                                nobody, so its responder is never told how the receive cycle \
+                                ended";
 
 /// The multicast group and port mDNS lives on.
 pub const GROUP: &str = "224.0.0.251:5353";
@@ -161,7 +174,7 @@ impl MdnsTransport {
             }
             let found: Vec<Arrived> = Service::from_records(message.records())
                 .iter()
-                .map(|service| arrived(peer, service))
+                .map(|service| arrived(peer, service, self.browsing.is_some()))
                 .collect();
             if !found.is_empty() {
                 return Ok(found);
@@ -263,8 +276,18 @@ impl Configured for MdnsTransport {
     }
 }
 
-fn arrived(peer: SocketAddr, service: &Service) -> Arrived {
-    Arrived::new(
+/// One service found, whole. Taken from an announcement it is at-most-once
+/// ([`AT_MOST_ONCE`]); taken while browsing, nothing at the far end is
+/// consumed by taking it — the next receive asks again and the responder
+/// answers again — so its acknowledgement waits for the verdict and does
+/// nothing on either.
+fn arrived(peer: SocketAddr, service: &Service, browsing: bool) -> Arrived {
+    let acknowledgement = if browsing {
+        Acknowledgement::unconsumed()
+    } else {
+        Acknowledgement::at_most_once(AT_MOST_ONCE)
+    };
+    Arrived::whole(
         format!(
             "mdns://{peer}/{}?port={}&host={}",
             service.full_name().trim_end_matches('.'),
@@ -272,6 +295,7 @@ fn arrived(peer: SocketAddr, service: &Service) -> Arrived {
             service.host
         ),
         service.txt_lines(),
+        acknowledgement,
     )
 }
 
@@ -284,9 +308,14 @@ impl Transport for MdnsTransport {
         Directions::BOTH
     }
 
+    fn arrivals(&self) -> transport::Arrivals {
+        transport::Arrivals::Ordered("browsing asks again what is not yet told")
+    }
+
     /// The services one response names, from the socket the first receive
     /// bound and kept: an announcement made between two receives waits in
-    /// its buffer.
+    /// its buffer. An announcement is at-most-once ([`AT_MOST_ONCE`]); an
+    /// answer to browsing is asked for again by the next receive.
     fn receive(&self) -> Result<Vec<Arrived>> {
         let socket = self.receiving.bound(|| self.bind_udp())?;
         self.query(socket)?;
@@ -392,8 +421,11 @@ mod tests {
             announcer.send(&target, txt.as_bytes()).expect("announced");
         }
         for round in 0..5 {
-            let arrived = far_end.receive().expect("received");
-            assert_eq!(arrived[0].bytes, format!("round={round}\n").as_bytes());
+            let mut arrived = far_end.receive().expect("received");
+            let arrived = arrived.remove(0);
+            assert!(!arrived.defers(), "an announcement is at-most-once");
+            let taken = arrived.taken().expect("taken");
+            assert_eq!(taken.bytes, format!("round={round}\n").as_bytes());
         }
     }
 
@@ -417,7 +449,13 @@ mod tests {
             "{}",
             arrived[0].origin_uri
         );
-        assert_eq!(arrived[0].bytes, b"txtvers=1\npath=/api\n");
+        let taken = arrived
+            .into_iter()
+            .next()
+            .expect("one")
+            .taken()
+            .expect("taken");
+        assert_eq!(taken.bytes, b"txtvers=1\npath=/api\n");
     }
 
     #[test]
@@ -461,12 +499,19 @@ mod tests {
                 .origin_uri
                 .ends_with("/Printer._ipp._tcp.local?port=631&host=printer.local.")
         );
-        assert_eq!(arrived[0].bytes, b"name=Printer\n");
         assert!(
             arrived[1]
                 .origin_uri
                 .contains("/Copier._ipp._tcp.local?port=632")
         );
+        assert!(arrived[0].defers(), "browsed: asked for again, never lost");
+        let taken = arrived
+            .into_iter()
+            .next()
+            .expect("one")
+            .taken()
+            .expect("taken");
+        assert_eq!(taken.bytes, b"name=Printer\n");
     }
 
     #[test]

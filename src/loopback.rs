@@ -14,7 +14,7 @@ use std::net::UdpSocket;
 
 use codec::hex;
 use net::Target;
-use transport::Arrived;
+use transport::Taken;
 use transport::arrived::next_arrival;
 use transport::bound::{Bound, Reading};
 use transport::error::{Result, classify, protocol_error};
@@ -63,11 +63,12 @@ impl Reading for MdnsTransport {
     ///
     /// Take the announcement, then query the responder that made it for
     /// the Stream, a chunk per query.
-    fn take_one(self, socket: &UdpSocket) -> Result<Arrived> {
+    fn take_one(self, socket: &UdpSocket) -> Result<Taken> {
         let announced = next_arrival(
             self.receive_datagram(socket)?,
             "an announcement naming no service",
-        )?;
+        )?
+        .taken()?;
         let responder = peer_of(&announced.origin_uri)?;
         let mut bytes = Vec::new();
         for n in 0..usize::MAX {
@@ -77,8 +78,9 @@ impl Reading for MdnsTransport {
                 .send_to(&message::encode(&query)?, &responder)
                 .map_err(|e| classify("querying", &e))?;
             for arrived in self.receive_datagram(socket)? {
+                let arrived = arrived.taken()?;
                 if arrived.bytes.is_empty() {
-                    return Ok(Arrived::new(announced.origin_uri, bytes));
+                    return Ok(Taken::new(announced.origin_uri, bytes));
                 }
                 let text = std::str::from_utf8(&arrived.bytes)
                     .map_err(|_| protocol_error("TXT strings that are not text"))?;
