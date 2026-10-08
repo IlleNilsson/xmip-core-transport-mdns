@@ -297,6 +297,7 @@ fn arrived(peer: SocketAddr, service: &Service, browsing: bool) -> Arrived {
         service.txt_lines(),
         acknowledgement,
     )
+    .from_peer(peer)
 }
 
 impl Transport for MdnsTransport {
