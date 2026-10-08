@@ -14,6 +14,7 @@ use std::net::UdpSocket;
 
 use codec::hex;
 use net::Target;
+use transport::ArrivalIdentity;
 use transport::Taken;
 use transport::arrived::next_arrival;
 use transport::bound::{Bound, Reading};
@@ -80,7 +81,9 @@ impl Reading for MdnsTransport {
             for arrived in self.receive_datagram(socket)? {
                 let arrived = arrived.taken()?;
                 if arrived.bytes.is_empty() {
-                    return Ok(Taken::new(announced.origin_uri, bytes));
+                    let mut taken = Taken::new(announced.origin_uri, bytes);
+                    taken.observed = announced.observed;
+                    return Ok(taken);
                 }
                 let text = std::str::from_utf8(&arrived.bytes)
                     .map_err(|_| protocol_error("TXT strings that are not text"))?;
@@ -94,6 +97,10 @@ impl Reading for MdnsTransport {
 }
 
 impl Loopback for MdnsTransport {
+    fn arrival_identity(&self) -> ArrivalIdentity {
+        ArrivalIdentity::PEER
+    }
+
     fn far_end(&self) -> Result<Box<dyn FarEnd>> {
         Ok(Box::new(Bound::new(self.clone(), self.bind_udp()?)))
     }
