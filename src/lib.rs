@@ -313,6 +313,10 @@ impl Transport for MdnsTransport {
         transport::Arrivals::Ordered("browsing asks again what is not yet told")
     }
 
+    fn waiting(&self) -> transport::Waiting {
+        transport::Waiting::Waits("a read of the socket waits for a response")
+    }
+
     /// The services one response names, from the socket the first receive
     /// bound and kept: an announcement made between two receives waits in
     /// its buffer. An announcement is at-most-once ([`AT_MOST_ONCE`]); an
