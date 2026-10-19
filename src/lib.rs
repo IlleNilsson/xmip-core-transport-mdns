@@ -321,13 +321,20 @@ impl Transport for MdnsTransport {
     /// bound and kept: an announcement made between two receives waits in
     /// its buffer. An announcement is at-most-once ([`AT_MOST_ONCE`]); an
     /// answer to browsing is asked for again by the next receive.
-    fn receive(&self) -> Result<Vec<Arrived>> {
+    fn receive_up_to(&self, _most: usize) -> Result<Vec<Arrived>> {
         let socket = self.receiving.bound(|| self.bind_udp())?;
         self.query(socket)?;
         self.receive_datagram(socket)
     }
 
-    fn send(&self, target: &str, bytes: &[u8]) -> Result<()> {
+    fn sending(&self) -> transport::Sending {
+        transport::Sending::Gathered(
+            "one mDNS announcement carries the whole body as its TXT record",
+        )
+    }
+
+    fn send_from(&self, target: &str, outgoing: transport::Outgoing<'_>) -> Result<()> {
+        let bytes: &[u8] = &outgoing.gather()?;
         let (address, mut service) = self.service_at(target)?;
         service.txt = Service::parse_txt(bytes);
         let announcement = Message::authoritative(0, service.records(TTL));
