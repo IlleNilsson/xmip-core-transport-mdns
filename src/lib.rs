@@ -187,7 +187,7 @@ impl MdnsTransport {
     /// # Errors
     /// A target without `/<instance>.<kind>.local`, or without a port.
     fn service_at(&self, target: &str) -> Result<(String, Service)> {
-        let Some(named) = Target::under(&["mdns"], target) else {
+        let Some(named) = Target::under(Self::SCHEMES, target) else {
             return Err(protocol_error(format!(
                 "an mdns target names the service: mdns://host:port/<instance>.<kind>.local?port=…, got {target}"
             )));
@@ -250,6 +250,9 @@ impl Configured for MdnsTransport {
             },
         ],
     };
+
+    /// The schemes a Location's address is entered with to choose this technology.
+    const SCHEMES: &'static [&'static str] = &["mdns"];
 
     fn configured(address: &str, settings: &Read) -> Result<Self> {
         let mut transport = Self::new(address);
