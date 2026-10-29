@@ -15,12 +15,12 @@ use std::net::UdpSocket;
 use codec::hex;
 use net::Target;
 use transport::ArrivalIdentity;
-use transport::Taken;
 use transport::arrived::next_arrival;
 use transport::bound::{Bound, Reading};
 use transport::error::{Result, classify, protocol_error};
 use transport::loopback::{FarEnd, LOOPBACK_TIMEOUT, Loopback};
 use transport::socket;
+use transport::{Configured, Taken};
 
 use crate::message::{self, MAX_MESSAGE};
 use crate::{MdnsTransport, Service, TTL};
@@ -144,7 +144,7 @@ impl Loopback for MdnsTransport {
 
 /// The peer an origin `mdns://peer/…` names.
 fn peer_of(origin: &str) -> Result<String> {
-    Target::under(&["mdns"], origin)
+    Target::under(<MdnsTransport as Configured>::SCHEMES, origin)
         .map(|named| named.authority())
         .filter(|peer| !peer.is_empty())
         .map(str::to_string)
