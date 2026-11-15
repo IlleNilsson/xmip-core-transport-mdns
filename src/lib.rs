@@ -122,13 +122,6 @@ impl MdnsTransport {
         self
     }
 
-    /// Give up waiting for a message after `timeout`.
-    #[must_use]
-    pub const fn timing_out_after(mut self, timeout: Duration) -> Self {
-        self.timeout = Some(timeout);
-        self
-    }
-
     /// Bind the UDP socket, joining the group when the bind address is a
     /// multicast one, and report the address actually assigned.
     ///
@@ -241,18 +234,20 @@ impl Configured for MdnsTransport {
                 meaning: "The IP address announced for the host.",
                 applies: Applies::Send,
             },
-            Setting {
-                name: "timeout",
-                kind: Kind::Duration,
-                presence: Presence::Optional,
-                meaning: "How long a message is waited for; unbounded when left out.",
-                applies: Applies::Receive,
-            },
+            transport::configured::timeout(
+                Applies::Receive,
+                None,
+                "How long a message is waited for; unbounded when left out.",
+            ),
         ],
     };
 
     /// The schemes a Location's address is entered with to choose this technology.
     const SCHEMES: &'static [&'static str] = &["mdns"];
+
+    fn timeout_kept(&mut self) -> Option<&mut dyn transport::configured::TimeoutKept> {
+        Some(&mut self.timeout)
+    }
 
     fn configured(address: &str, settings: &Read) -> Result<Self> {
         let mut transport = Self::new(address);
@@ -272,10 +267,7 @@ impl Configured for MdnsTransport {
             let host = transport.host.clone();
             transport = transport.as_host(&host, &addresses);
         }
-        Ok(match settings.optional_duration("timeout") {
-            Some(timeout) => transport.timing_out_after(timeout),
-            None => transport,
-        })
+        Ok(transport)
     }
 }
 
