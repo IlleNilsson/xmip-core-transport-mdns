@@ -72,7 +72,7 @@ pub struct MdnsTransport {
     timeout: Option<Duration>,
     /// The socket every send leaves from, bound once.
     sender: Sender,
-    /// The socket the first receive binds and joins the group on, and every
+    /// The socket its open binds and joins the group on, and every
     /// receive reads.
     receiving: Kept<UdpSocket>,
 }
@@ -269,6 +269,12 @@ impl Configured for MdnsTransport {
         }
         Ok(transport)
     }
+
+    /// The socket every receive takes from, bound where a Receive Location
+    /// listens.
+    fn listening(&self) -> Result<Option<&str>> {
+        self.receiving.listening(|| self.bind_udp())
+    }
 }
 
 /// One service found, whole. Taken from an announcement it is at-most-once
@@ -312,12 +318,12 @@ impl Transport for MdnsTransport {
         transport::Waiting::Waits("a read of the socket waits for a response")
     }
 
-    /// The services one response names, from the socket the first receive
+    /// The services one response names, from the socket its open
     /// bound and kept: an announcement made between two receives waits in
     /// its buffer. An announcement is at-most-once ([`AT_MOST_ONCE`]); an
     /// answer to browsing is asked for again by the next receive.
     fn receive_up_to(&self, _most: usize) -> Result<Vec<Arrived>> {
-        let socket = self.receiving.bound(|| self.bind_udp())?;
+        let socket = self.receiving.listener()?;
         self.query(socket)?;
         self.receive_datagram(socket)
     }
