@@ -128,8 +128,7 @@ impl Loopback for MdnsTransport {
             let txt = payload
                 .chunks(CHUNK)
                 .nth(n)
-                .map(|chunk| chunk.chunks(STRING).map(hex::encode).collect())
-                .unwrap_or_default();
+                .map_or_default(|chunk| chunk.chunks(STRING).map(hex::encode).collect());
             let records = self.service(&format!("chunk-{n}"), txt).records(TTL);
             let response = Message::authoritative(query.id, records);
             responder
