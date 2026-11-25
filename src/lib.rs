@@ -245,6 +245,14 @@ impl Configured for MdnsTransport {
     /// The schemes a Location's address is entered with to choose this technology.
     const SCHEMES: &'static [&'static str] = &["mdns"];
 
+    /// The whole address: a send reads the service it announces from an
+    /// `mdns://host:port/<instance>.<kind>.local?port=…` target, so a Send
+    /// Location announces what its address says; a Receive Location binds
+    /// the address in its own terms.
+    fn own_target(address: &str) -> &str {
+        address
+    }
+
     fn timeout_kept(&mut self) -> Option<&mut dyn transport::configured::TimeoutKept> {
         Some(&mut self.timeout)
     }
@@ -440,6 +448,37 @@ mod tests {
             let taken = arrived.taken().expect("taken");
             assert_eq!(taken.bytes, format!("round={round}\n").as_bytes());
         }
+    }
+
+    /// A Send Location as a node builds it, from its address, announces the
+    /// service its address names, its own target the whole `mdns://`
+    /// address (the owner, 2026-11-25: *just do your best for now*). Until
+    /// 2026-11-25 its target was the address without its scheme, and every
+    /// send was refused as naming no service.
+    #[test]
+    fn a_send_location_announces_what_its_address_says() {
+        let far_end = node();
+        let (socket, at) = far_end.bind_udp().expect("binding");
+        let address = format!("mdns://{at}/Probe._xmip._tcp.local?port=8080");
+        let sending = MdnsTransport::open(&address, Applies::Send, &[]).expect("sending");
+
+        sending
+            .send(MdnsTransport::own_target(&address), b"txtvers=1\n")
+            .expect("announced where its address says");
+
+        let arrived = far_end.receive_datagram(&socket).expect("the announcement");
+        let taken = arrived
+            .into_iter()
+            .next()
+            .expect("one")
+            .taken()
+            .expect("taken");
+        assert_eq!(taken.bytes, b"txtvers=1\n");
+        assert!(
+            taken
+                .origin_uri
+                .contains("/Probe._xmip._tcp.local?port=8080")
+        );
     }
 
     #[test]

@@ -8,6 +8,8 @@ A Receive Location keeps its socket, bound as its transport is opened (`Configur
 
 A send target is read by `net::Target` in [xmip-core-library-net](https://github.com/IlleNilsson/xmip-core-library-net), the one reading of a URI every technology calls, and its query is decoded there. Until 2026-09-28 this technology split the query off itself, without percent-decoding it.
 
+A Send Location's target is its whole address, `mdns://host:port/<instance>.<kind>.local?port=…`, which a send reads the service it announces from (`Configured::own_target`); until 2026-11-25 it was the address without its scheme, and every send of a node was refused.
+
 ## Acknowledgement
 
 An announcement is multicast to the link and answered by nobody, so acceptance
