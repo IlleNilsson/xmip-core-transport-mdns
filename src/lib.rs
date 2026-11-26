@@ -31,37 +31,59 @@
 //! binds the port on every interface and joins the group — and is never
 //! used under test; a test binds `127.0.0.1:0` and answers from a second
 //! socket.
+//!
+//! **Built with its `declaration` feature alone** the crate is
+//! [`declaration`], what a Location of it is configured with, and none of
+//! the code above, which is behind the default feature, the dns
+//! technology it reads its messages with included: what the surfaces'
+//! library carries (ADR-0064, amendment 2026-11-26).
 
+#[cfg(feature = "declaration")]
+pub mod declaration;
+#[cfg(feature = "default")]
 pub mod loopback;
+#[cfg(feature = "default")]
 pub mod message;
+#[cfg(feature = "default")]
 pub mod service;
 
+#[cfg(feature = "default")]
 use std::net::{IpAddr, SocketAddr, UdpSocket};
+#[cfg(feature = "default")]
 use std::time::Duration;
 
+#[cfg(feature = "default")]
 use dns::message::Message;
+#[cfg(feature = "default")]
 pub use message::MAX_MESSAGE;
+#[cfg(feature = "default")]
 use net::Target;
+#[cfg(feature = "default")]
 pub use service::Service;
-use transport::Configured;
+#[cfg(feature = "default")]
 use transport::error::{Result, classify, protocol_error};
-use transport::kept::Kept;
-use transport::sender::Sender;
-use transport::socket;
-use transport::{Acknowledgement, Arrived, Directions, Transport};
-use xcore::settings::{Applies, Kind, Presence, Read, Setting, Settings};
+#[cfg(feature = "default")]
+use transport::{
+    Acknowledgement, Arrived, Configured, Directions, Transport, kept::Kept, sender::Sender, socket,
+};
+#[cfg(feature = "default")]
+use xcore::settings::{Read, Settings};
 
 /// Why an announced service cannot be acknowledged after the receive
 /// cycle.
+#[cfg(feature = "default")]
 pub const AT_MOST_ONCE: &str = "an mDNS announcement is multicast to the link and answered by \
                                 nobody, so its responder is never told how the receive cycle \
                                 ended";
 
 /// The multicast group and port mDNS lives on.
+#[cfg(feature = "default")]
 pub const GROUP: &str = "224.0.0.251:5353";
 /// How long an announced record lives, RFC 6762 section 10.
+#[cfg(feature = "default")]
 pub const TTL: u32 = 120;
 
+#[cfg(feature = "default")]
 #[derive(Clone)]
 pub struct MdnsTransport {
     bind: String,
@@ -77,6 +99,7 @@ pub struct MdnsTransport {
     receiving: Kept<UdpSocket>,
 }
 
+#[cfg(feature = "default")]
 impl MdnsTransport {
     /// Listen at `bind`: the group `224.0.0.251:5353` for what the link
     /// announces, or a unicast address for answers to its own query.
@@ -206,44 +229,10 @@ impl MdnsTransport {
     }
 }
 
+#[cfg(feature = "default")]
 impl Configured for MdnsTransport {
-    /// The address is where a Receive Location listens: the group,
-    /// `224.0.0.251:5353`, for what the link announces, or a unicast address
-    /// for answers to its own query. A Send Location announces to its target.
-    const SETTINGS: &'static Settings = &Settings {
-        technology: env!("CARGO_PKG_NAME"),
-        settings: &[
-            Setting {
-                name: "browsing",
-                kind: Kind::Text,
-                presence: Presence::Optional,
-                meaning: "The service kind, `_ipp._tcp`, asked for before taking answers.",
-                applies: Applies::Receive,
-            },
-            Setting {
-                name: "host",
-                kind: Kind::Text,
-                presence: Presence::Optional,
-                meaning: "The host an announced service runs on, placed in `local.`.",
-                applies: Applies::Send,
-            },
-            Setting {
-                name: "host_address",
-                kind: Kind::Address,
-                presence: Presence::Optional,
-                meaning: "The IP address announced for the host.",
-                applies: Applies::Send,
-            },
-            transport::configured::timeout(
-                Applies::Receive,
-                None,
-                "How long a message is waited for; unbounded when left out.",
-            ),
-        ],
-    };
-
-    /// The schemes a Location's address is entered with to choose this technology.
-    const SCHEMES: &'static [&'static str] = &["mdns"];
+    const SETTINGS: &'static Settings = declaration::SETTINGS;
+    const SCHEMES: &'static [&'static str] = declaration::SCHEMES;
 
     /// The whole address: a send reads the service it announces from an
     /// `mdns://host:port/<instance>.<kind>.local?port=…` target, so a Send
@@ -290,6 +279,7 @@ impl Configured for MdnsTransport {
 /// consumed by taking it — the next receive asks again and the responder
 /// answers again — so its acknowledgement waits for the verdict and does
 /// nothing on either.
+#[cfg(feature = "default")]
 fn arrived(peer: SocketAddr, service: &Service, browsing: bool) -> Arrived {
     let acknowledgement = if browsing {
         Acknowledgement::unconsumed()
@@ -309,6 +299,7 @@ fn arrived(peer: SocketAddr, service: &Service, browsing: bool) -> Arrived {
     .from_peer(peer)
 }
 
+#[cfg(feature = "default")]
 impl Transport for MdnsTransport {
     fn name(&self) -> &'static str {
         "mdns"
@@ -358,6 +349,7 @@ mod tests {
     use std::net::Ipv4Addr;
     use transport::loopback::Loopback;
     use transport::payload::edge_payloads;
+    use xcore::settings::Applies;
 
     fn node() -> MdnsTransport {
         MdnsTransport::new("127.0.0.1:0").timing_out_after(Duration::from_secs(2))
